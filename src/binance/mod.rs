@@ -1,3 +1,4 @@
+use crate::exchange::{Exchange, ExchangeError, ExchangeWebSocket, Order, Orderbook};
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;
 use futures_util::{stream::SplitStream, StreamExt};
@@ -21,8 +22,6 @@ pub struct BinanceOrder {
     price: String,
     quantity: String,
 }
-
-use crate::exchange::{Exchange, ExchangeWebSocket, Order, Orderbook};
 
 impl TryFrom<BinanceOrder> for Order {
     type Error = Box<dyn std::error::Error>;
@@ -62,7 +61,6 @@ impl TryFrom<BinanceOrderbook> for Orderbook {
         })
     }
 }
-
 pub struct BinanceWebSocket {
     url: String,
     channel: String,
@@ -80,36 +78,27 @@ impl BinanceWebSocket {
         }
     }
 }
+
 #[async_trait]
 impl ExchangeWebSocket for BinanceWebSocket {
-    async fn initialise(&mut self) {
-        let (ws_stream, _) = connect_async(self.url.clone() + &self.channel)
-            .await
-            .expect("Failed to connect to Binance Websocket");
-
+    async fn initialise(&mut self) -> Result<(), ExchangeError> {
+        let (ws_stream, _) = connect_async(format!("{}{}", self.url, self.channel)).await?;
         let (write, read) = ws_stream.split();
         self.write = Some(write);
         self.read = Some(read);
+        Ok(())
     }
 
-    async fn process_book_update(&mut self) -> Option<Orderbook> {
-        let reader = self.read.as_mut()?;
-        // TODO: Only parse the last (most recent) orderbook msg.
-        if let Some(response) = reader.next().await {
-            match response {
-                Ok(msg) => match serde_json::from_str::<BinanceOrderbook>(msg.to_text().unwrap()) {
-                    Ok(parsed) => {
-                        if let Ok(order_book) = Orderbook::try_from(parsed) {
-                            return Some(order_book);
-                        }
-                    }
-                    Err(_) => {
-                        println!("ignoring non-BinanceWsMessage: {}", msg);
-                    }
-                },
-                Err(_) => {}
-            }
-        }
-        None
+    async fn process_book_update(&mut self) -> Result<Orderbook, ExchangeError> {
+        let reader = self.read.as_mut().ok_or(ExchangeError::WebSocketError(
+            tokio_tungstenite::tungstenite::Error::AlreadyClosed,
+        ))?;
+
+        let response = reader.next().await.ok_or_else(|| {
+            ExchangeError::WebSocketError(tokio_tungstenite::tungstenite::Error::ConnectionClosed)
+        })??;
+
+        let parsed: BinanceOrderbook = serde_json::from_str(response.to_text()?)?;
+        Orderbook::try_from(parsed).map_err(|_| ExchangeError::ConversionError)
     }
 }

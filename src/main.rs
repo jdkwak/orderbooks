@@ -3,19 +3,29 @@ pub mod binance;
 pub mod bitstamp;
 pub mod exchange;
 
+use aggregator::Aggregator;
+
 use crate::binance::BinanceWebSocket;
 use crate::bitstamp::BitstampWebSocket;
-use crate::exchange::ExchangeWebSocket;
 
 #[tokio::main]
 async fn main() {
-    let mut bitstamp_ws = BitstampWebSocket::new();
-    bitstamp_ws.initialise().await;
-    let bitstamp_orderbooks = tokio::spawn(async move {
+    let mut aggregator = Aggregator {
+        exchanges: vec![
+            Box::new(BitstampWebSocket::new()),
+            Box::new(BinanceWebSocket::new()),
+        ],
+    };
+    aggregator
+        .initialise()
+        .await
+        .expect("Failed to initialise Bitstamp Websocket");
+    let aggregator_orderbooks = tokio::spawn(async move {
         loop {
-            if let Some(order_book) = bitstamp_ws.process_book_update().await {
+            if let Ok(order_book) = aggregator.process_book_update().await {
                 println!(
-                    "Bitstamp Top bid, ask: {}@{}, {}@{}",
+                    "AGG: {} Top bid, ask: {}@{}, {}@{}",
+                    order_book.exchange,
                     order_book.bids.first().unwrap().quantity,
                     order_book.bids.first().unwrap().price,
                     order_book.asks.first().unwrap().quantity,
@@ -25,22 +35,5 @@ async fn main() {
         }
     });
 
-    let mut binance_ws = BinanceWebSocket::new();
-    binance_ws.initialise().await;
-    let binance_orderbooks = tokio::spawn(async move {
-        loop {
-            if let Some(order_book) = binance_ws.process_book_update().await {
-                println!(
-                    "Binance  Top bid, ask: {}@{}, {}@{}",
-                    order_book.bids.first().unwrap().quantity,
-                    order_book.bids.first().unwrap().price,
-                    order_book.asks.first().unwrap().quantity,
-                    order_book.asks.first().unwrap().price,
-                )
-            }
-        }
-    });
-
-    let _ = tokio::try_join!(bitstamp_orderbooks);
-    let _ = tokio::try_join!(binance_orderbooks);
+    let _ = tokio::try_join!(aggregator_orderbooks);
 }

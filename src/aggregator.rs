@@ -1,44 +1,49 @@
-use crate::exchange::Exchange;
-use crate::exchange::ExchangeWebSocket;
-use crate::exchange::Orderbook;
+use crate::exchange::{Exchange, ExchangeError, ExchangeWebSocket, Orderbook};
+use futures::future::{select_all, BoxFuture};
+use futures::FutureExt;
 
-struct ExchangeOrder {
-    exchange: Exchange,
-    price: f64,
-    amount: f64,
+pub struct ExchangeOrder {
+    pub exchange: Exchange,
+    pub price: f64,
+    pub amount: f64,
 }
 
-struct CombinedBook {
-    spread: f64,
-    asks: Vec<ExchangeOrder>,
-    bids: Vec<ExchangeOrder>,
+pub struct CombinedBook {
+    pub spread: f64,
+    pub asks: Vec<ExchangeOrder>,
+    pub bids: Vec<ExchangeOrder>,
 }
 
-struct OrderbookAggregator {
-    exchanges: Vec<Box<dyn ExchangeWebSocket>>,
-    combined_book: CombinedBook,
+pub struct Aggregator {
+    pub exchanges: Vec<Box<dyn ExchangeWebSocket + Send>>,
 }
 
-// impl OrderbookAggregator {
-//     async fn combine_orderbooks(&mut self) {
-//         self.exchanges.into_iter().map(|ws| {
-//             if let Some(order_book) = ws.process_book_update().await {
-//                 self.update_combined_book(&order_book);
-//             }
-//         })
-//     }
+impl Aggregator {
+    /// Initialise all exchanges
+    pub async fn initialise(&mut self) -> Result<(), ExchangeError> {
+        for exchange in &mut self.exchanges {
+            exchange.initialise().await?;
+        }
+        Ok(())
+    }
 
-//     fn update_combined_book(&mut self, order_book: &Orderbook) {
-//         if self.combined_book.bids.len() == 0 {
-//             let _exchange_bids: Vec<ExchangeOrder> = order_book
-//                 .bids
-//                 .into_iter()
-//                 .map(|b| ExchangeOrder {
-//                     exchange: order_book.exchange,
-//                     price: b.price,
-//                     amount: b.quantity,
-//                 })
-//                 .collect();
-//         }
-//     }
-// }
+    /// Concurrently await book updates from all exchanges and return the earliest one
+    pub async fn process_book_update(&mut self) -> Result<Orderbook, ExchangeError> {
+        // Collect futures from all exchanges
+        let futures: Vec<BoxFuture<'_, Result<Orderbook, ExchangeError>>> = self
+            .exchanges
+            .iter_mut()
+            .map(|exchange| exchange.process_book_update().boxed())
+            .collect();
+
+        if futures.is_empty() {
+            return Err(ExchangeError::Unknown(
+                "No exchanges to process.".to_string(),
+            ));
+        }
+
+        // Wait for the first completed future and return its result
+        let (result, _, _) = select_all(futures).await;
+        result
+    }
+}
