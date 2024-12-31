@@ -1,39 +1,47 @@
 pub mod aggregator;
 pub mod binance;
 pub mod bitstamp;
+pub mod combined_orderbook;
+pub mod config;
 pub mod exchange;
-
-use aggregator::Aggregator;
-
 use crate::binance::BinanceWebSocket;
 use crate::bitstamp::BitstampWebSocket;
+use crate::config::load_config;
+use aggregator::{Aggregator, ExchangeStream};
+use exchange::ExchangeError;
+use futures_util::StreamExt;
 
 #[tokio::main]
-async fn main() {
-    let mut aggregator = Aggregator {
-        exchanges: vec![
-            Box::new(BitstampWebSocket::new()),
-            Box::new(BinanceWebSocket::new()),
-        ],
-    };
-    aggregator
-        .initialise()
-        .await
-        .expect("Failed to initialise Bitstamp Websocket");
-    let aggregator_orderbooks = tokio::spawn(async move {
-        loop {
-            if let Ok(order_book) = aggregator.process_book_update().await {
+async fn main() -> Result<(), ExchangeError> {
+    let config = load_config("config/config.json5").expect("Failed to load config file");
+    let mut websockets: Vec<Box<dyn ExchangeStream>> = vec![];
+
+    for exchange_name in config.exchanges {
+        match exchange_name.as_str() {
+            "Binance" => websockets.push(Box::new(BinanceWebSocket::new())),
+            "Bitstamp" => websockets.push(Box::new(BitstampWebSocket::new())),
+            _ => eprintln!("Warning: Unsupported exchange '{}'", exchange_name),
+        }
+    }
+    let mut aggregator = Aggregator::new(websockets);
+
+    aggregator.initialise_exchanges().await?;
+
+    while let Some(update) = aggregator.next().await {
+        match update {
+            Ok((exchange, orderbook)) => {
                 println!(
                     "AGG: {} Top bid, ask: {}@{}, {}@{}",
-                    order_book.exchange,
-                    order_book.bids.first().unwrap().quantity,
-                    order_book.bids.first().unwrap().price,
-                    order_book.asks.first().unwrap().quantity,
-                    order_book.asks.first().unwrap().price,
-                )
+                    exchange,
+                    orderbook.bids.first().unwrap().quantity,
+                    orderbook.bids.first().unwrap().price,
+                    orderbook.asks.first().unwrap().quantity,
+                    orderbook.asks.first().unwrap().price,
+                );
             }
+            Err(err) => eprintln!("Error: {:?}", err),
         }
-    });
+    }
 
-    let _ = tokio::try_join!(aggregator_orderbooks);
+    Ok(())
 }

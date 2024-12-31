@@ -16,6 +16,7 @@ pub enum ExchangeError {
     Unknown(String),
 }
 
+#[derive(Debug, Clone)]
 pub enum Exchange {
     Bitstamp,
     Binance,
@@ -45,6 +46,6 @@ pub struct Order {
 
 #[async_trait]
 pub trait ExchangeWebSocket: Send {
+    fn get_exchange(&self) -> Exchange;
     async fn initialise(&mut self) -> Result<(), ExchangeError>;
-    async fn process_book_update(&mut self) -> Result<Orderbook, ExchangeError>;
 }

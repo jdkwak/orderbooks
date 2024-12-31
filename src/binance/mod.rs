@@ -1,9 +1,13 @@
 use crate::exchange::{Exchange, ExchangeError, ExchangeWebSocket, Order, Orderbook};
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;
+use futures_util::stream::Stream;
 use futures_util::{stream::SplitStream, StreamExt};
 use serde::Deserialize;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, WebSocketStream};
 
@@ -62,6 +66,7 @@ impl TryFrom<BinanceOrderbook> for Orderbook {
     }
 }
 pub struct BinanceWebSocket {
+    venue: Exchange,
     url: String,
     channel: String,
     write: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
@@ -71,6 +76,7 @@ pub struct BinanceWebSocket {
 impl BinanceWebSocket {
     pub fn new() -> Self {
         BinanceWebSocket {
+            venue: Exchange::Binance,
             url: "wss://stream.binance.com:9443/ws/".to_string(),
             channel: "ethbtc@depth20@1000ms".to_string(),
             write: None,
@@ -81,6 +87,10 @@ impl BinanceWebSocket {
 
 #[async_trait]
 impl ExchangeWebSocket for BinanceWebSocket {
+    fn get_exchange(&self) -> Exchange {
+        self.venue.clone()
+    }
+
     async fn initialise(&mut self) -> Result<(), ExchangeError> {
         let (ws_stream, _) = connect_async(format!("{}{}", self.url, self.channel)).await?;
         let (write, read) = ws_stream.split();
@@ -88,17 +98,39 @@ impl ExchangeWebSocket for BinanceWebSocket {
         self.read = Some(read);
         Ok(())
     }
+}
 
-    async fn process_book_update(&mut self) -> Result<Orderbook, ExchangeError> {
-        let reader = self.read.as_mut().ok_or(ExchangeError::WebSocketError(
-            tokio_tungstenite::tungstenite::Error::AlreadyClosed,
-        ))?;
+impl Stream for BinanceWebSocket {
+    type Item = Result<Orderbook, ExchangeError>;
 
-        let response = reader.next().await.ok_or_else(|| {
-            ExchangeError::WebSocketError(tokio_tungstenite::tungstenite::Error::ConnectionClosed)
-        })??;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
 
-        let parsed: BinanceOrderbook = serde_json::from_str(response.to_text()?)?;
-        Orderbook::try_from(parsed).map_err(|_| ExchangeError::ConversionError)
+        // Ensure the reader is available
+        let reader = match this.read.as_mut() {
+            Some(reader) => reader,
+            None => return Poll::Ready(None),
+        };
+
+        // Poll the next WebSocket message
+        match Pin::new(reader).poll_next(cx) {
+            Poll::Ready(Some(Ok(msg))) => {
+                let orderbook_result = msg
+                    .to_text()
+                    .map_err(|_| ExchangeError::WebSocketError(WsError::Utf8))
+                    .and_then(|text| {
+                        serde_json::from_str::<BinanceOrderbook>(text)
+                            .map_err(ExchangeError::ParsingError)
+                    })
+                    .and_then(|parsed| {
+                        Orderbook::try_from(parsed).map_err(|_| ExchangeError::ConversionError)
+                    });
+
+                Poll::Ready(Some(orderbook_result))
+            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(ExchangeError::WebSocketError(e)))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }

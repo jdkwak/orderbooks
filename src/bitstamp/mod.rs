@@ -1,10 +1,14 @@
 use crate::exchange::{Exchange, ExchangeError, ExchangeWebSocket, Order, Orderbook};
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;
+use futures_util::stream::Stream;
 use futures_util::{stream::SplitStream, SinkExt, StreamExt};
 use serde::Deserialize;
 use serde::Serialize;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::Error as WsError;
 use tokio_tungstenite::MaybeTlsStream;
 use tokio_tungstenite::{connect_async, tungstenite::Message, WebSocketStream};
 
@@ -87,6 +91,7 @@ struct Channel {
 }
 
 pub struct BitstampWebSocket {
+    venue: Exchange,
     url: String,
     channel: String,
     write: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
@@ -96,6 +101,7 @@ pub struct BitstampWebSocket {
 impl BitstampWebSocket {
     pub fn new() -> Self {
         BitstampWebSocket {
+            venue: Exchange::Bitstamp,
             url: "wss://ws.bitstamp.net/".to_string(),
             channel: "order_book_ethbtc".to_string(),
             write: None,
@@ -106,6 +112,10 @@ impl BitstampWebSocket {
 
 #[async_trait]
 impl ExchangeWebSocket for BitstampWebSocket {
+    fn get_exchange(&self) -> Exchange {
+        self.venue.clone()
+    }
+
     async fn initialise(&mut self) -> Result<(), ExchangeError> {
         let subscription = Subscription {
             event: "bts:subscribe".to_string(),
@@ -128,15 +138,39 @@ impl ExchangeWebSocket for BitstampWebSocket {
 
         Ok(())
     }
+}
 
-    async fn process_book_update(&mut self) -> Result<Orderbook, ExchangeError> {
-        let reader = self.read.as_mut().ok_or(ExchangeError::WebSocketError(
-            tokio_tungstenite::tungstenite::Error::AlreadyClosed,
-        ))?;
-        let response = reader.next().await.ok_or_else(|| {
-            ExchangeError::WebSocketError(tokio_tungstenite::tungstenite::Error::ConnectionClosed)
-        })??;
-        let parsed: BitstampOrderbook = serde_json::from_str(response.to_text()?)?;
-        Orderbook::try_from(parsed).map_err(|_| ExchangeError::ConversionError)
+impl Stream for BitstampWebSocket {
+    type Item = Result<Orderbook, ExchangeError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        // Ensure the reader is available
+        let reader = match this.read.as_mut() {
+            Some(reader) => reader,
+            None => return Poll::Ready(None),
+        };
+
+        // Poll the next WebSocket message
+        match Pin::new(reader).poll_next(cx) {
+            Poll::Ready(Some(Ok(msg))) => {
+                let orderbook_result = msg
+                    .to_text()
+                    .map_err(|_| ExchangeError::WebSocketError(WsError::Utf8))
+                    .and_then(|text| {
+                        serde_json::from_str::<BitstampOrderbook>(text)
+                            .map_err(ExchangeError::ParsingError)
+                    })
+                    .and_then(|parsed| {
+                        Orderbook::try_from(parsed).map_err(|_| ExchangeError::ConversionError)
+                    });
+
+                Poll::Ready(Some(orderbook_result))
+            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(ExchangeError::WebSocketError(e)))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }

@@ -1,49 +1,67 @@
+use crate::combined_orderbook::CombinedBook;
 use crate::exchange::{Exchange, ExchangeError, ExchangeWebSocket, Orderbook};
-use futures::future::{select_all, BoxFuture};
-use futures::FutureExt;
+use futures_util::stream::Stream;
+use futures_util::StreamExt;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio_stream::StreamMap;
 
-pub struct ExchangeOrder {
-    pub exchange: Exchange,
-    pub price: f64,
-    pub amount: f64,
+pub trait ExchangeStream:
+    Stream<Item = Result<Orderbook, ExchangeError>> + Unpin + ExchangeWebSocket + Send
+{
 }
-
-pub struct CombinedBook {
-    pub spread: f64,
-    pub asks: Vec<ExchangeOrder>,
-    pub bids: Vec<ExchangeOrder>,
+impl<T> ExchangeStream for T where
+    T: Stream<Item = Result<Orderbook, ExchangeError>> + Unpin + ExchangeWebSocket + Send
+{
 }
 
 pub struct Aggregator {
-    pub exchanges: Vec<Box<dyn ExchangeWebSocket + Send>>,
+    exchanges: Vec<Box<dyn ExchangeStream>>,
+    combined_book: CombinedBook,
 }
 
 impl Aggregator {
-    /// Initialise all exchanges
-    pub async fn initialise(&mut self) -> Result<(), ExchangeError> {
+    pub fn new(exchanges: Vec<Box<dyn ExchangeStream>>) -> Self {
+        Aggregator {
+            exchanges,
+            combined_book: CombinedBook::new(),
+        }
+    }
+
+    pub async fn initialise_exchanges(&mut self) -> Result<(), ExchangeError> {
         for exchange in &mut self.exchanges {
-            exchange.initialise().await?;
+            if let Err(err) = exchange.initialise().await {
+                return Err(ExchangeError::Unknown(format!(
+                    "Error initializing {}: {}",
+                    exchange.get_exchange(),
+                    err
+                )));
+            }
         }
         Ok(())
     }
+}
 
-    /// Concurrently await book updates from all exchanges and return the earliest one
-    pub async fn process_book_update(&mut self) -> Result<Orderbook, ExchangeError> {
-        // Collect futures from all exchanges
-        let futures: Vec<BoxFuture<'_, Result<Orderbook, ExchangeError>>> = self
-            .exchanges
-            .iter_mut()
-            .map(|exchange| exchange.process_book_update().boxed())
-            .collect();
+impl Stream for Aggregator {
+    type Item = Result<(Exchange, Orderbook), ExchangeError>;
 
-        if futures.is_empty() {
-            return Err(ExchangeError::Unknown(
-                "No exchanges to process.".to_string(),
-            ));
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        let mut stream_map = StreamMap::new();
+
+        for (index, exchange) in this.exchanges.iter_mut().enumerate() {
+            stream_map.insert(index, Pin::new(exchange));
         }
 
-        // Wait for the first completed future and return its result
-        let (result, _, _) = select_all(futures).await;
-        result
+        match stream_map.poll_next_unpin(cx) {
+            Poll::Ready(Some((index, Ok(orderbook)))) => {
+                let exchange = this.exchanges[index].get_exchange();
+                Poll::Ready(Some(Ok((exchange, orderbook))))
+            }
+            Poll::Ready(Some((_, Err(e)))) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
