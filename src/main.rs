@@ -29,13 +29,13 @@ async fn main() -> Result<(), ExchangeError> {
 
     while let Some(update) = aggregator.next().await {
         match update {
-            Ok((exchange, orderbook)) => {
+            Ok(orderbook) => {
                 println!(
                     "AGG: {} Top bid, ask: {}@{}, {}@{}",
-                    exchange,
-                    orderbook.bids.first().unwrap().quantity,
+                    orderbook.bids.first().unwrap().exchange,
+                    orderbook.bids.first().unwrap().amount,
                     orderbook.bids.first().unwrap().price,
-                    orderbook.asks.first().unwrap().quantity,
+                    orderbook.asks.first().unwrap().amount,
                     orderbook.asks.first().unwrap().price,
                 );
             }

@@ -1,4 +1,4 @@
-use crate::exchange::{Exchange, ExchangeError, ExchangeWebSocket, Order, Orderbook};
+use crate::exchange::{Exchange, ExchangeError, ExchangeOrder, ExchangeWebSocket, Orderbook};
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;
 use futures_util::stream::Stream;
@@ -36,13 +36,18 @@ pub struct BitstampOrder {
     pub quantity: String,
 }
 
-impl TryFrom<BitstampOrder> for Order {
+impl TryFrom<BitstampOrder> for ExchangeOrder {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(order: BitstampOrder) -> Result<Self, Self::Error> {
+        let exchange = Exchange::Bitstamp;
         let price = order.price.parse::<f64>()?;
-        let quantity = order.quantity.parse::<f64>()?;
-        Ok(Order { price, quantity })
+        let amount = order.quantity.parse::<f64>()?;
+        Ok(ExchangeOrder {
+            exchange,
+            price,
+            amount,
+        })
     }
 }
 
@@ -71,7 +76,6 @@ impl TryFrom<BitstampOrderbook> for Orderbook {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Orderbook {
-            exchange: Exchange::Bitstamp,
             exchange_ts,
             bids,
             asks,

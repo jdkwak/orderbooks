@@ -43,7 +43,7 @@ impl Aggregator {
 }
 
 impl Stream for Aggregator {
-    type Item = Result<(Exchange, Orderbook), ExchangeError>;
+    type Item = Result<Orderbook, ExchangeError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -55,10 +55,7 @@ impl Stream for Aggregator {
         }
 
         match stream_map.poll_next_unpin(cx) {
-            Poll::Ready(Some((index, Ok(orderbook)))) => {
-                let exchange = this.exchanges[index].get_exchange();
-                Poll::Ready(Some(Ok((exchange, orderbook))))
-            }
+            Poll::Ready(Some((index, Ok(orderbook)))) => Poll::Ready(Some(Ok(orderbook))),
             Poll::Ready(Some((_, Err(e)))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,

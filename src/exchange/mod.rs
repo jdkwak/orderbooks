@@ -32,16 +32,16 @@ impl fmt::Display for Exchange {
 }
 
 pub struct Orderbook {
-    pub exchange: Exchange,
     pub exchange_ts: u64,
-    pub bids: Vec<Order>,
-    pub asks: Vec<Order>,
+    pub bids: Vec<ExchangeOrder>,
+    pub asks: Vec<ExchangeOrder>,
 }
 
-#[derive(Clone)]
-pub struct Order {
+#[derive(Debug, Clone)]
+pub struct ExchangeOrder {
+    pub exchange: Exchange,
     pub price: f64,
-    pub quantity: f64,
+    pub amount: f64,
 }
 
 #[async_trait]
