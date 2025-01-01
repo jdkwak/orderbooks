@@ -1,4 +1,4 @@
-use crate::combined_orderbook::CombinedBook;
+use crate::combined_book::CombinedBook;
 use crate::exchange::{ExchangeError, ExchangeWebSocket, Orderbook};
 use futures_util::stream::Stream;
 use futures_util::StreamExt;

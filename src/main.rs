@@ -1,7 +1,7 @@
 pub mod aggregator;
 pub mod binance;
 pub mod bitstamp;
-pub mod combined_orderbook;
+pub mod combined_book;
 pub mod config;
 pub mod exchange;
 use crate::binance::BinanceWebSocket;
