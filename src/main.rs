@@ -23,7 +23,7 @@ async fn main() -> Result<(), ExchangeError> {
             _ => eprintln!("Warning: Unsupported exchange '{}'", exchange_name),
         }
     }
-    let mut aggregator = Aggregator::new(websockets);
+    let mut aggregator = Aggregator::new(websockets, config.max_size);
 
     aggregator.initialise_exchanges().await?;
 

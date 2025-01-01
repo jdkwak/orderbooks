@@ -1,5 +1,5 @@
 use crate::combined_orderbook::CombinedBook;
-use crate::exchange::{Exchange, ExchangeError, ExchangeWebSocket, Orderbook};
+use crate::exchange::{ExchangeError, ExchangeWebSocket, Orderbook};
 use futures_util::stream::Stream;
 use futures_util::StreamExt;
 use std::pin::Pin;
@@ -21,10 +21,10 @@ pub struct Aggregator {
 }
 
 impl Aggregator {
-    pub fn new(exchanges: Vec<Box<dyn ExchangeStream>>) -> Self {
+    pub fn new(exchanges: Vec<Box<dyn ExchangeStream>>, max_size: usize) -> Self {
         Aggregator {
             exchanges,
-            combined_book: CombinedBook::new(),
+            combined_book: CombinedBook::new(max_size),
         }
     }
 
@@ -55,7 +55,7 @@ impl Stream for Aggregator {
         }
 
         match stream_map.poll_next_unpin(cx) {
-            Poll::Ready(Some((index, Ok(orderbook)))) => Poll::Ready(Some(Ok(orderbook))),
+            Poll::Ready(Some((_, Ok(orderbook)))) => Poll::Ready(Some(Ok(orderbook))),
             Poll::Ready(Some((_, Err(e)))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,

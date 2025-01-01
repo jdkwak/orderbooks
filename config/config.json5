@@ -1,3 +1,4 @@
 {
-  exchanges: ["Binance", "Bitstamp"]
+  exchanges: ["Binance", "Bitstamp"],
+  max_size: 10,
 }
