@@ -1,15 +1,18 @@
-pub mod aggregator;
 pub mod binance;
 pub mod bitstamp;
 pub mod combined_book;
 pub mod config;
 pub mod exchange;
+pub mod orderbook_processor;
 use crate::binance::BinanceWebSocket;
 use crate::bitstamp::BitstampWebSocket;
 use crate::config::load_config;
-use aggregator::{Aggregator, ExchangeStream};
 use exchange::ExchangeError;
 use futures_util::StreamExt;
+use orderbook_processor::{ExchangeStream, OrderbookProcessor};
+pub mod orderbook {
+    tonic::include_proto!("orderbook");
+}
 
 #[tokio::main]
 async fn main() -> Result<(), ExchangeError> {
@@ -23,11 +26,11 @@ async fn main() -> Result<(), ExchangeError> {
             _ => eprintln!("Warning: Unsupported exchange '{}'", exchange_name),
         }
     }
-    let mut aggregator = Aggregator::new(websockets, config.max_size);
+    let mut orderbook_processor = OrderbookProcessor::new(websockets, config.max_size);
 
-    aggregator.initialise_exchanges().await?;
+    orderbook_processor.initialise_exchanges().await?;
 
-    while let Some(update) = aggregator.next().await {
+    while let Some(update) = orderbook_processor.next().await {
         match update {
             Ok(orderbook) => {
                 println!(
