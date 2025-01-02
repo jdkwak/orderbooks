@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_update_exceeding_max_orders() {
-        let mut combined_book = CombinedBook::new(3); // max_orders = 3
+        let mut combined_book = CombinedBook::new(3);
         let order_book = Orderbook {
             exchange_ts: 1234567890,
             bids: vec![
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_update_replacement_of_stale_orders() {
-        let mut combined_book = CombinedBook::new(3); // max_orders = 3
+        let mut combined_book = CombinedBook::new(3);
         combined_book.snapshot.bids = vec![
             ExchangeOrder {
                 exchange: Exchange::Bitstamp,

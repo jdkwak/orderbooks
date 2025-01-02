@@ -1,4 +1,4 @@
 {
   exchanges: ["Binance", "Bitstamp"],
-  max_size: 10,
+  max_orders: 10,
 }

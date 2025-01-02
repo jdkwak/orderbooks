@@ -15,9 +15,11 @@ serde = { version = "1.0.216", features = ["derive"] }
 serde_json = "1.0.134"
 thiserror = "2.0.9"
 tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread", "net", "full"] } 
-tokio-stream = "0.1.17"
+tokio-stream = { version = "0.1.17", features = ["sync"] }
 tokio-tungstenite = { version = "0.26.1", features = ["native-tls"] }
 tonic = "0.12.3"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
 
 [build-dependencies]
 tonic-build = "0.12.3"
