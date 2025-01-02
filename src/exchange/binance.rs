@@ -78,11 +78,11 @@ pub struct BinanceWebSocket {
 }
 
 impl BinanceWebSocket {
-    pub fn new() -> Self {
+    pub fn new(trading_pair: &str) -> Self {
         BinanceWebSocket {
             venue: Exchange::Binance,
             url: "wss://stream.binance.com:9443/ws/".to_string(),
-            channel: "ethbtc@depth20@1000ms".to_string(),
+            channel: trading_pair.to_string() + "@depth20@1000ms",
             write: None,
             read: None,
         }

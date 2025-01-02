@@ -103,11 +103,11 @@ pub struct BitstampWebSocket {
 }
 
 impl BitstampWebSocket {
-    pub fn new() -> Self {
+    pub fn new(trading_pair: &str) -> Self {
         BitstampWebSocket {
             venue: Exchange::Bitstamp,
             url: "wss://ws.bitstamp.net/".to_string(),
-            channel: "order_book_ethbtc".to_string(),
+            channel: "order_book_".to_string() + trading_pair,
             write: None,
             read: None,
         }

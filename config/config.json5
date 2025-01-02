@@ -1,4 +1,5 @@
 {
   exchanges: ["Binance", "Bitstamp"],
+  trading_pair: "btceth",
   max_orders: 10,
 }

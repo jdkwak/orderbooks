@@ -21,7 +21,7 @@ impl OrderbookProcessor {
 
         let mut exchanges = Vec::new();
         for exchange_name in config.exchanges {
-            match instantiate_exchange_websocket(&exchange_name) {
+            match instantiate_exchange_websocket(&exchange_name, &config.trading_pair) {
                 Ok(websocket) => exchanges.push(websocket),
                 Err(e) => {
                     panic!(

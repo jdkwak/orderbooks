@@ -1,5 +1,3 @@
-pub mod binance;
-pub mod bitstamp;
 pub mod combined_book;
 pub mod config;
 pub mod exchange;

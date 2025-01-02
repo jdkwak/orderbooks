@@ -6,20 +6,23 @@ use thiserror::Error;
 
 pub mod binance;
 pub mod bitstamp;
-use crate::binance::BinanceWebSocket;
-use crate::bitstamp::BitstampWebSocket;
+use binance::BinanceWebSocket;
+use bitstamp::BitstampWebSocket;
+
+const BINANCE_STR: &str = "Binance";
+const BITSTAMP_STR: &str = "Bitstamp";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Exchange {
-    Bitstamp,
     Binance,
+    Bitstamp,
 }
 
 impl fmt::Display for Exchange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Exchange::Bitstamp => write!(f, "Bitstamp"),
-            Exchange::Binance => write!(f, "Binance"),
+            Exchange::Binance => write!(f, "{}", BINANCE_STR),
+            Exchange::Bitstamp => write!(f, "{}", BITSTAMP_STR),
         }
     }
 }
@@ -35,10 +38,11 @@ impl<T> ExchangeStream for T where
 
 pub fn instantiate_exchange_websocket(
     exchange: &str,
+    trading_pair: &str,
 ) -> Result<Box<dyn ExchangeStream>, ExchangeError> {
     match exchange {
-        "Binance" => Ok(Box::new(BinanceWebSocket::new())),
-        "Bitstamp" => Ok(Box::new(BitstampWebSocket::new())),
+        BINANCE_STR => Ok(Box::new(BinanceWebSocket::new(trading_pair))),
+        BITSTAMP_STR => Ok(Box::new(BitstampWebSocket::new(trading_pair))),
         _ => Err(ExchangeError::Unsupported(exchange.to_string())),
     }
 }

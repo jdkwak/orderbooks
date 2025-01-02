@@ -5,6 +5,7 @@ use std::path::Path;
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub exchanges: Vec<String>,
+    pub trading_pair: String,
     pub max_orders: usize,
 }
 
