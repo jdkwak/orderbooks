@@ -35,17 +35,20 @@ async fn main() {
     info!("Creating orderbook processor");
     let mut orderbook_processor = OrderbookProcessor::new(config);
 
-    info!("Creating orderbook service");
-    let orderbook_service = OrderbookService::new(orderbook_processor.subscribe());
+    info!("Creating orderbook receiver");
+    let receiver = orderbook_processor.subscribe();
 
     info!("Spawning orderbook processor drive loop..");
     tokio::spawn(async move {
-        if let Err(e) = orderbook_processor.initialise_exchanges().await {
-            error!("Error initializing exchanges: {:?}", e);
-        } else {
-            orderbook_processor.drive_and_broadcast().await;
-        }
+        orderbook_processor
+            .initialise_exchanges()
+            .await
+            .expect("Error initializing exhanges");
+        orderbook_processor.drive_and_broadcast().await;
     });
+
+    info!("Creating orderbook service");
+    let orderbook_service = OrderbookService::new(receiver);
 
     info!("Setting up gRPC service listening on {}", GRPC_SERVER_ADDR);
     if let Err(err) = Server::builder()

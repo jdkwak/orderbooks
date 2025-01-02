@@ -1,5 +1,5 @@
 {
   exchanges: ["Binance", "Bitstamp"],
-  trading_pair: "btceth",
+  trading_pair: "ethbtc",
   max_orders: 10,
 }

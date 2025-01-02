@@ -7,7 +7,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast;
 use tokio_stream::StreamMap;
-use tracing::error;
+use tracing::{debug, info, warn};
 
 pub struct OrderbookProcessor {
     exchanges: Vec<Box<dyn ExchangeStream>>,
@@ -41,6 +41,7 @@ impl OrderbookProcessor {
 
     pub async fn initialise_exchanges(&mut self) -> Result<(), ExchangeError> {
         for exchange in &mut self.exchanges {
+            info!("initialising exhange ws: {}", exchange.get_exchange());
             if let Err(err) = exchange.initialise().await {
                 return Err(ExchangeError::Unknown(format!(
                     "Error initializing {}: {}",
@@ -56,16 +57,18 @@ impl OrderbookProcessor {
         while let Some(result) = self.next().await {
             match result {
                 Ok(snapshot) => {
+                    debug!("Sending combined book to subscribers");
                     self.send_snapshot_update(snapshot);
                 }
                 Err(e) => {
-                    error!("Error processing snapshot: {:?}", e);
+                    warn!("Error processing snapshot: {:?}", e);
                 }
             }
         }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<CombinedBookSnapshot> {
+        info!("Adding a new subscriber");
         self.snapshot_sender.subscribe()
     }
 
@@ -86,8 +89,13 @@ impl Stream for OrderbookProcessor {
 
         match stream_map.poll_next_unpin(cx) {
             Poll::Ready(Some((_, Ok(orderbook)))) => {
+                debug!(
+                    "Received new orderbook update for {}",
+                    orderbook.bids.first().unwrap().exchange,
+                );
                 this.combined_book.update(orderbook);
                 let snapshot = this.combined_book.get_snapshot();
+                debug!("Updated combined book, new spread: {}", snapshot.spread);
                 Poll::Ready(Some(Ok(snapshot)))
             }
             Poll::Ready(Some((_, Err(e)))) => Poll::Ready(Some(Err(e))),
