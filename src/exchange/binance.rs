@@ -73,19 +73,54 @@ pub struct BinanceWebSocket {
     venue: Exchange,
     url: String,
     channel: String,
+    max_orders: usize,
     write: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>,
     read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
 }
 
 impl BinanceWebSocket {
-    pub fn new(trading_pair: &str) -> Self {
+    pub fn new(trading_pair: &str, max_orders: usize) -> Self {
         Self {
             venue: Exchange::Binance,
             url: "wss://stream.binance.com:9443/ws/".to_string(),
             channel: trading_pair.to_string() + "@depth20@1000ms",
+            max_orders,
             write: None,
             read: None,
         }
+    }
+
+    fn parse_orderbook_message(&self, msg: Message) -> Result<Orderbook, ExchangeError> {
+        msg.to_text()
+            .map_err(|_| ExchangeError::WebSocketError(WsError::Utf8))
+            .and_then(|text| {
+                serde_json::from_str::<BinanceOrderbook>(text).map_err(ExchangeError::ParsingError)
+            })
+            .and_then(|parsed| {
+                let exchange_ts = parsed.last_update_id;
+
+                let bids = parsed
+                    .bids
+                    .into_iter()
+                    .take(self.max_orders)
+                    .map(|order| order.try_into())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| ExchangeError::ConversionError)?;
+
+                let asks = parsed
+                    .asks
+                    .into_iter()
+                    .take(self.max_orders)
+                    .map(|order| order.try_into())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| ExchangeError::ConversionError)?;
+
+                Ok(Orderbook {
+                    exchange_ts,
+                    bids,
+                    asks,
+                })
+            })
     }
 }
 
@@ -110,26 +145,14 @@ impl Stream for BinanceWebSocket {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        // Ensure the reader is available
         let reader = match this.read.as_mut() {
             Some(reader) => reader,
             None => return Poll::Ready(None),
         };
 
-        // Poll the next WebSocket message
         match Pin::new(reader).poll_next(cx) {
             Poll::Ready(Some(Ok(msg))) => {
-                let orderbook_result = msg
-                    .to_text()
-                    .map_err(|_| ExchangeError::WebSocketError(WsError::Utf8))
-                    .and_then(|text| {
-                        serde_json::from_str::<BinanceOrderbook>(text)
-                            .map_err(ExchangeError::ParsingError)
-                    })
-                    .and_then(|parsed| {
-                        Orderbook::try_from(parsed).map_err(|_| ExchangeError::ConversionError)
-                    });
-
+                let orderbook_result = this.parse_orderbook_message(msg);
                 Poll::Ready(Some(orderbook_result))
             }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(ExchangeError::WebSocketError(e)))),

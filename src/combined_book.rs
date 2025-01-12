@@ -25,7 +25,6 @@ impl CombinedBook {
     }
 
     pub fn update(&mut self, order_book: Orderbook) {
-        // Clear stale orders for the same exchange
         let incoming_exchange = &order_book.bids.first().map(|o| o.exchange.clone());
         if let Some(exchange) = incoming_exchange {
             self.snapshot
@@ -36,7 +35,6 @@ impl CombinedBook {
                 .retain(|order| order.exchange != *exchange);
         }
 
-        // Helper function to merge orders efficiently
         fn merge_orders(
             combined_orders: &mut Vec<ExchangeOrder>,
             new_orders: &[ExchangeOrder],
@@ -75,7 +73,6 @@ impl CombinedBook {
             *combined_orders = result;
         }
 
-        // Merge bids (higher price, then higher amount is better)
         merge_orders(
             &mut self.snapshot.bids,
             &order_book.bids,
@@ -83,7 +80,6 @@ impl CombinedBook {
             |a, b| a.price > b.price || (a.price == b.price && a.amount > b.amount),
         );
 
-        // Merge asks (lower price, then higher amount is better)
         merge_orders(
             &mut self.snapshot.asks,
             &order_book.asks,
@@ -91,7 +87,6 @@ impl CombinedBook {
             |a, b| a.price < b.price || (a.price == b.price && a.amount > b.amount),
         );
 
-        // Recalculate the spread
         if let (Some(best_bid), Some(best_ask)) =
             (self.snapshot.bids.first(), self.snapshot.asks.first())
         {

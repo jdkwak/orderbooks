@@ -28,21 +28,22 @@ impl fmt::Display for Exchange {
 }
 
 pub trait ExchangeStream:
-    Stream<Item = Result<Orderbook, ExchangeError>> + Unpin + ExchangeWebSocket + Send + Sync
+    Stream<Item = Result<Orderbook, ExchangeError>> + Unpin + ExchangeWebSocket
 {
 }
 impl<T> ExchangeStream for T where
-    T: Stream<Item = Result<Orderbook, ExchangeError>> + Unpin + ExchangeWebSocket + Send + Sync
+    T: Stream<Item = Result<Orderbook, ExchangeError>> + Unpin + ExchangeWebSocket
 {
 }
 
 pub fn instantiate_exchange_websocket(
     exchange: &str,
     trading_pair: &str,
+    max_orders: usize,
 ) -> Result<Box<dyn ExchangeStream>, ExchangeError> {
     match exchange {
-        BINANCE_STR => Ok(Box::new(BinanceWebSocket::new(trading_pair))),
-        BITSTAMP_STR => Ok(Box::new(BitstampWebSocket::new(trading_pair))),
+        BINANCE_STR => Ok(Box::new(BinanceWebSocket::new(trading_pair, max_orders))),
+        BITSTAMP_STR => Ok(Box::new(BitstampWebSocket::new(trading_pair, max_orders))),
         _ => Err(ExchangeError::Unsupported(exchange.to_string())),
     }
 }
