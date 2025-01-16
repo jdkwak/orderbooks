@@ -76,8 +76,8 @@ Concurrent event handling using a Runtime.
 ---
 
 # Python Client
-* Command-line tool
-* Displays the combined orderbook.
+
+![Demo](assets/orderbook.gif)
 
  ---
 
