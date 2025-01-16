@@ -83,7 +83,7 @@ impl BinanceWebSocket {
         Self {
             venue: Exchange::Binance,
             url: "wss://stream.binance.com:9443/ws/".to_string(),
-            channel: trading_pair.to_string() + "@depth20@1000ms",
+            channel: format!("{}@depth{}@1000ms", trading_pair, max_orders),
             max_orders,
             write: None,
             read: None,
