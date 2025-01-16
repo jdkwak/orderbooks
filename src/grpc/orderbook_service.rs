@@ -3,8 +3,7 @@ use crate::exchange::ExchangeOrder;
 use crate::orderbook::{orderbook_aggregator_server::OrderbookAggregator, Empty, Level, Summary};
 use futures_util::{Stream, StreamExt};
 use std::pin::Pin;
-use tokio::sync::broadcast;
-use tokio_stream::wrappers::BroadcastStream;
+use tokio::sync::watch;
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, instrument};
 
@@ -29,25 +28,12 @@ impl From<CombinedBookSnapshot> for Summary {
 }
 
 pub struct OrderbookService {
-    sender: broadcast::Sender<CombinedBookSnapshot>,
+    receiver: watch::Receiver<CombinedBookSnapshot>,
 }
 
 impl OrderbookService {
-    pub fn new(mut receiver: broadcast::Receiver<CombinedBookSnapshot>) -> Self {
-        let (sender, _internal_receiver) = broadcast::channel(100);
-
-        let sender_clone = sender.clone();
-        tokio::spawn(async move {
-            while let Ok(snapshot) = receiver.recv().await {
-                let _ = sender_clone.send(snapshot);
-            }
-        });
-
-        Self { sender }
-    }
-
-    fn create_receiver(&self) -> broadcast::Receiver<CombinedBookSnapshot> {
-        self.sender.subscribe()
+    pub fn new(receiver: watch::Receiver<CombinedBookSnapshot>) -> Self {
+        Self { receiver }
     }
 }
 
@@ -69,30 +55,19 @@ impl OrderbookAggregator for OrderbookService {
             "New subscribe request received"
         );
 
-        let receiver = self.create_receiver();
-        let stream = BroadcastStream::new(receiver).filter_map(move |result| {
-            let request_id = request_id;
-            async move {
-                match result {
-                    Ok(snapshot) => {
-                        debug!(
-                            request_id = %request_id,
-                            snapshot = ?snapshot,
-                            "Sending data to subscriber"
-                        );
-                        Some(Ok(snapshot.into()))
-                    }
-                    Err(e) => {
-                        debug!(
-                            request_id = %request_id,
-                            error = ?e,
-                            "Error in data stream for subscriber"
-                        );
-                        None
-                    }
+        let receiver = self.receiver.clone();
+        let stream =
+            tokio_stream::wrappers::WatchStream::new(receiver).filter_map(move |snapshot| {
+                let request_id = request_id;
+                async move {
+                    debug!(
+                        request_id = %request_id,
+                        snapshot = ?snapshot,
+                        "Sending data to subscriber"
+                    );
+                    Some(Ok(snapshot.into()))
                 }
-            }
-        });
+            });
 
         Ok(Response::new(Box::pin(stream) as Self::BookSummaryStream))
     }

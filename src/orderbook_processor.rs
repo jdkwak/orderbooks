@@ -5,19 +5,20 @@ use futures_util::stream::Stream;
 use futures_util::StreamExt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::sync::broadcast;
+use tokio::sync::watch;
 use tokio_stream::StreamMap;
 use tracing::{debug, info, warn};
 
 pub struct OrderbookProcessor {
     exchanges: Vec<Box<dyn ExchangeStream>>,
     combined_book: crate::combined_book::CombinedBook,
-    snapshot_sender: broadcast::Sender<CombinedBookSnapshot>,
+    snapshot_sender: watch::Sender<CombinedBookSnapshot>,
 }
 
 impl OrderbookProcessor {
     pub fn new(config: Config) -> Self {
-        let (snapshot_sender, _) = broadcast::channel(100);
+        let initial_snapshot = CombinedBookSnapshot::default(); // Ensure CombinedBookSnapshot implements Default
+        let (snapshot_sender, _) = watch::channel(initial_snapshot);
 
         let mut exchanges = Vec::new();
         for exchange_name in config.exchanges {
@@ -45,7 +46,7 @@ impl OrderbookProcessor {
 
     pub async fn initialise_exchanges(&mut self) -> Result<(), ExchangeError> {
         for exchange in &mut self.exchanges {
-            info!("initialising exhange ws: {}", exchange.get_exchange());
+            info!("initialising exchange ws: {}", exchange.get_exchange());
             if let Err(err) = exchange.initialise().await {
                 return Err(ExchangeError::Unknown(format!(
                     "Error initializing {}: {}",
@@ -71,13 +72,15 @@ impl OrderbookProcessor {
         }
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<CombinedBookSnapshot> {
+    pub fn subscribe(&self) -> watch::Receiver<CombinedBookSnapshot> {
         info!("Adding a new subscriber");
         self.snapshot_sender.subscribe()
     }
 
     fn send_snapshot_update(&mut self, snapshot: CombinedBookSnapshot) {
-        let _ = self.snapshot_sender.send(snapshot);
+        if let Err(e) = self.snapshot_sender.send(snapshot) {
+            warn!("Failed to send snapshot update: {:?}", e);
+        }
     }
 }
 
